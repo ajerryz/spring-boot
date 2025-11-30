@@ -246,7 +246,7 @@ public class SpringApplication {
 	}
 
 	/**
-	 * Create a new {@link SpringApplication} instance. The application context will load
+	 * 创建一个新的 {@link SpringApplication} 实例. The application context will load
 	 * beans from the specified primary sources (see {@link SpringApplication class-level}
 	 * documentation for details). The instance can be customized before calling
 	 * {@link #run(String...)}.
@@ -260,11 +260,21 @@ public class SpringApplication {
 		this.resourceLoader = resourceLoader;
 		Assert.notNull(primarySources, "PrimarySources must not be null");
 		this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+		// 推断应用类型：通过扫描 classpath 中的核心类，判断应用类型（决定后续创建的上下文和Web服务器类型)
+		// SERVLET: 存在 DispatcherServlet(SpringMVC)且不存在 DispatcherHandler(WebFlux)。传统Web应用(Tomcat)
+		// REACTIVE: 与SERVLET相反。响应式Web应用(WebFlux)
+		// NONE: 既无MVC也无WebFlux核心类。非Web应用
 		this.webApplicationType = WebApplicationType.deduceFromClasspath();
+		// ??
 		this.bootstrapRegistryInitializers = new ArrayList<>(
 				getSpringFactoriesInstances(BootstrapRegistryInitializer.class));
+		// 加载应用上下文初始化器(ApplicationContextInitializer)
+		// 通过 Spring SPI机制（扫描 META-INF/spring.factories）加载所有 ApplicationContextInitializer实现类，用于在上下文刷新前定制化上下文配置
 		setInitializers((Collection) getSpringFactoriesInstances(ApplicationContextInitializer.class));
+		// 加载应用监听器(ApplicationListener)
+		// 同样通过 Spring SPI加载所有 ApplicationListener实现类，用于监听启动过程中的各类事件(如：启动中、环境准备完成、上下文就绪等)
 		setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+		// 推断主启动类，通过遍历当前线程的栈轨迹,找到包含 main() 方法的类(即标注@SpringBootApplication的类)
 		this.mainApplicationClass = deduceMainApplicationClass();
 	}
 
@@ -284,27 +294,50 @@ public class SpringApplication {
 	}
 
 	/**
-	 * Run the Spring application, creating and refreshing a new
+	 * 运行Spring应用, creating and refreshing a new
 	 * {@link ApplicationContext}.
 	 * @param args the application arguments (usually passed from a Java main method)
 	 * @return a running {@link ApplicationContext}
+	 * @mydoc: run()是启动的核心，涵盖：环境准备、上下文创建、Bean加载、Web服务器启动、事件发布等关键步骤
 	 */
 	public ConfigurableApplicationContext run(String... args) {
+		// 1.启动计时 & 配置 Headless模式
+		// 2.加载并启动SpringApplicationRunListeners
+		// 3.准备环境(ConfigurableEnvironment)
+		// 4.打印Banner(可选)
+		// 5.创建应用上下文(ApplicationContext)
+		// 6.准备上下文(prepareContext)
+		// 7.刷新上下文(refreshContext)
+		// 8.刷新后处理(afterRefresh)
+		// 9.发布就绪事件 & 异常处理
 		long startTime = System.nanoTime();
 		DefaultBootstrapContext bootstrapContext = createBootstrapContext();
 		ConfigurableApplicationContext context = null;
+		// Headless模式：默认开启 java.awt.headless=true,适配无图形界面的服务器环境
 		configureHeadlessProperty();
 		SpringApplicationRunListeners listeners = getRunListeners(args);
 		listeners.starting(bootstrapContext, this.mainApplicationClass);
 		try {
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+			// 准备环境
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, bootstrapContext, applicationArguments);
 			configureIgnoreBeanInfo(environment);
+			// 打印Banner
 			Banner printedBanner = printBanner(environment);
+			// 创建应用上下文
 			context = createApplicationContext();
 			context.setApplicationStartup(this.applicationStartup);
+			// 准备上下文
 			prepareContext(bootstrapContext, context, environment, listeners, applicationArguments, printedBanner);
+			// 刷新上下文
+			// 核心是调用 AbstractApplicationContext,refresh()方法，完成IoC容器的初始化和Bean实例化
 			refreshContext(context);
+			// 刷新后处理
+			// 1.启动Web服务器(如果是Web应用)
+			// 2.发布 ApplicationStartedEvent(应用已启动，尚未就绪)
+			// 3.执行 ApplicationRunner 和 CommandLineRunner 按照@Order 排序执行，用于启动后初始化(如：加载数据，校验配置)
+			//			ApplicationRunner: 接收ApplicationArguments(封装后的命令行参数)
+			//			CommandLineRunner: 接收原始 String[] args
 			afterRefresh(context, applicationArguments);
 			Duration timeTakenToStartup = Duration.ofNanos(System.nanoTime() - startTime);
 			if (this.logStartupInfo) {
